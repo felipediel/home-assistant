@@ -275,43 +275,32 @@ class BroadlinkRemote(RemoteEntity):
         should_store = False
         for command in commands:
             try:
-                should_store |= await self._async_learn_code(
-                    command, device, toggle, timeout
-                )
+                if not toggle:
+                    code = await self._async_learn_command(command, timeout)
+                else:
+                    code = [
+                        await self._async_learn_command(command, timeout),
+                        await self._async_learn_command(command, timeout),
+                    ]
             except (AuthorizationError, DeviceOfflineError):
                 break
-            except BroadlinkException:
-                pass
+            except (BroadlinkException, TimeoutError) as err_msg:
+                _LOGGER.error("Failed to learn '%s': %s", command, err_msg)
+                continue
+            else:
+                self._codes.setdefault(device, {}).update({command: code})
+                should_store = True
 
         if should_store:
             await self._code_storage.async_save(self._codes)
 
-    async def _async_learn_code(self, command, device, toggle, timeout):
-        """Learn a code from a remote.
-
-        Capture an additional code for toggle commands.
-        """
+    async def _async_learn_command(self, command, timeout):
+        """Learn a command from a remote."""
         try:
-            if not toggle:
-                code = await self._async_capture_code(command, timeout)
-            else:
-                code = [
-                    await self._async_capture_code(command, timeout),
-                    await self._async_capture_code(command, timeout),
-                ]
-        except TimeoutError:
-            _LOGGER.error("Failed to learn '%s/%s': No code received", command, device)
-            return False
+            await self.device.async_request(self.device.api.enter_learning)
         except BroadlinkException as err_msg:
-            _LOGGER.error("Failed to learn '%s/%s': %s", command, device, err_msg)
+            _LOGGER.error("Failed to enter learning mode: %s", err_msg)
             raise
-
-        self._codes.setdefault(device, {}).update({command: code})
-        return True
-
-    async def _async_capture_code(self, command, timeout):
-        """Enter learning mode and capture a code from a remote."""
-        await self.device.async_request(self.device.api.enter_learning)
 
         self.hass.components.persistent_notification.async_create(
             f"Press the '{command}' button.",
@@ -319,22 +308,19 @@ class BroadlinkRemote(RemoteEntity):
             notification_id="learn_command",
         )
 
-        code = None
-        start_time = utcnow()
-        while (utcnow() - start_time) < timedelta(seconds=timeout):
-            await asyncio.sleep(1)
-            try:
-                code = await self.device.async_request(self.device.api.check_data)
-            except (ReadError, StorageError):
-                continue
+        try:
+            start_time = utcnow()
+            while (utcnow() - start_time) < timedelta(seconds=timeout):
+                await asyncio.sleep(1)
+                try:
+                    code = await self.device.async_request(self.device.api.check_data)
+                except (ReadError, StorageError):
+                    continue
+                else:
+                    return b64encode(code).decode("utf8")
             else:
-                break
-
-        self.hass.components.persistent_notification.async_dismiss(
-            notification_id="learn_command"
-        )
-
-        if code is None:
-            raise TimeoutError
-
-        return b64encode(code).decode("utf8")
+                raise TimeoutError("No code received")
+        finally:
+            self.hass.components.persistent_notification.async_dismiss(
+                notification_id="learn_command"
+            )
