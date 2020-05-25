@@ -282,7 +282,8 @@ class BroadlinkRemote(RemoteEntity):
                         await self._async_learn_command(command, timeout),
                         await self._async_learn_command(command, timeout),
                     ]
-            except (AuthorizationError, DeviceOfflineError):
+            except (AuthorizationError, DeviceOfflineError) as err_msg:
+                _LOGGER.error("Failed to learn '%s': %s", command, err_msg)
                 break
             except (BroadlinkException, TimeoutError) as err_msg:
                 _LOGGER.error("Failed to learn '%s': %s", command, err_msg)
