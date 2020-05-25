@@ -129,16 +129,21 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         hass.data[DOMAIN][COMPONENT].remove(unique_id)
         return
 
-    discover = partial(blk.discover, timeout=2)
+    discover = partial(blk.discover, timeout=5)
     devices = await hass.async_add_executor_job(discover)
-    d = next(filter(lambda d: d.host[0] == host, devices))
-    _LOGGER.error(
-        "The correct class and type for %s are %s and %s. The selected class is %s",
-        host,
-        str(type(d)),
-        str(hex(d.devtype)),
-        str(type(remote.device.api)),
-    )
+    d = list(filter(lambda d: d.host[0] == host, devices))
+    if d:
+        _LOGGER.error(
+            "The correct class and type for %s are %s and %s. The selected class is %s",
+            host,
+            str(type(d[0])),
+            str(hex(d[0].devtype)),
+            str(type(remote.device.api)),
+        )
+    else:
+        _LOGGER.error(
+            "The selected class for %s is %s", host, str(type(remote.device.api)),
+        )
     async_add_entities([remote], False)
 
 
