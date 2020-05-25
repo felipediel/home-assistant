@@ -317,10 +317,8 @@ class BroadlinkRemote(RemoteEntity):
                     code = await self.device.async_request(self.device.api.check_data)
                 except (ReadError, StorageError):
                     continue
-                else:
-                    return b64encode(code).decode("utf8")
-            else:
-                raise TimeoutError("No code received")
+                return b64encode(code).decode("utf8")
+            raise TimeoutError("No code received")
         finally:
             self.hass.components.persistent_notification.async_dismiss(
                 notification_id="learn_command"
