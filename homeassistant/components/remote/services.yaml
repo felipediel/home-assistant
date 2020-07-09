@@ -58,8 +58,11 @@ learn_command:
     command:
       description: A single command or a list of commands to learn.
       example: "Turn on"
+    mode:
+      description: The learning mode.
+      example: "rf"
     alternative:
-      description: If code must be stored as alternative (useful for discrete remotes).
+      description: If specified, an additional code will be captured (useful for toggle commands).
       example: "True"
     timeout:
       description: Timeout, in seconds, for the command to be learned.

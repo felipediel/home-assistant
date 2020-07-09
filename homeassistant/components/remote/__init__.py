@@ -8,6 +8,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    ATTR_MODE,
     SERVICE_TOGGLE,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
@@ -103,6 +104,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
         {
             vol.Optional(ATTR_DEVICE): cv.string,
             vol.Optional(ATTR_COMMAND): vol.All(cv.ensure_list, [cv.string]),
+            vol.Optional(ATTR_MODE): cv.string,
             vol.Optional(ATTR_ALTERNATIVE): cv.boolean,
             vol.Optional(ATTR_TIMEOUT): cv.positive_int,
         },

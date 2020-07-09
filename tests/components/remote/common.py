@@ -17,6 +17,7 @@ from homeassistant.components.remote import (
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    ATTR_MODE,
     ENTITY_MATCH_ALL,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
@@ -80,6 +81,7 @@ def learn_command(
     entity_id=ENTITY_MATCH_ALL,
     device=None,
     command=None,
+    mode=None,
     alternative=None,
     timeout=None,
 ):
@@ -93,6 +95,9 @@ def learn_command(
 
     if command:
         data[ATTR_COMMAND] = command
+
+    if mode:
+        data[ATTR_MODE] = mode
 
     if alternative:
         data[ATTR_ALTERNATIVE] = alternative
