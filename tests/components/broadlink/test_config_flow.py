@@ -175,6 +175,25 @@ async def test_flow_user_device_not_found(hass):
     assert result["errors"] == {"base": "cannot_connect"}
 
 
+async def test_flow_user_device_not_supported(hass):
+    """Test we handle a device not supported in the user step."""
+    device = get_device("Kitchen")
+    mock_api = device.get_mock_api()
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    with patch(DEVICE_DISCOVERY, return_value=[mock_api]):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"host": device.host},
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "not_supported"
+
+
 async def test_flow_user_network_unreachable(hass):
     """Test we handle a network unreachable in the user step."""
     result = await hass.config_entries.flow.async_init(
@@ -634,6 +653,22 @@ async def test_flow_import_device_not_found(hass):
     assert result["reason"] == "cannot_connect"
 
 
+async def test_flow_import_device_not_supported(hass):
+    """Test we handle a device not supported in the import step."""
+    device = get_device("Kitchen")
+    mock_api = device.get_mock_api()
+
+    with patch(DEVICE_DISCOVERY, return_value=[mock_api]):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data={"host": device.host},
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "not_supported"
+
+
 async def test_flow_import_invalid_ip_address(hass):
     """Test we handle an invalid IP address in the import step."""
     with patch(DEVICE_DISCOVERY, side_effect=OSError(errno.EINVAL, None)):
@@ -684,6 +719,122 @@ async def test_flow_import_os_error(hass):
 
     assert result["type"] == "abort"
     assert result["reason"] == "unknown"
+
+
+async def test_flow_integration_discovery_works(hass):
+    """Test a flow initiated by integration discovery."""
+    device = get_device("Living Room")
+    mock_api = device.get_mock_api()
+
+    with patch(DEVICE_FACTORY, return_value=mock_api) as mock_factory:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=device.get_discovery_info(),
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "finish"
+    assert result["errors"] == {}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": device.name},
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["title"] == device.name
+    assert result["data"]["host"] == device.host
+    assert result["data"]["mac"] == device.mac
+    assert result["data"]["type"] == device.devtype
+
+    assert mock_api.auth.call_count == 1
+    assert mock_factory.call_count == 1
+
+
+async def test_flow_integration_discovery_already_in_progress(hass):
+    """Test we do not create more than one flow per device."""
+    device = get_device("Living Room")
+    data = device.get_discovery_info()
+
+    with patch(DEVICE_FACTORY, return_value=device.get_mock_api()):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=data,
+        )
+
+    with patch(DEVICE_FACTORY, return_value=device.get_mock_api()):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=data,
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_in_progress"
+
+
+async def test_flow_integration_discovery_host_already_configured(hass):
+    """Test we do not create flow for a host that is already configured."""
+    device = get_device("Living Room")
+    mock_entry = device.get_mock_entry()
+    mock_entry.add_to_hass(hass)
+    mock_api = device.get_mock_api()
+
+    with patch(DEVICE_FACTORY, return_value=mock_api):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=device.get_discovery_info(),
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+
+
+async def test_flow_integration_discovery_mac_already_configured(hass):
+    """Test we do not create more than one config entry per device.
+
+    We need to abort the flow and update the existing entry.
+    """
+    device = get_device("Living Room")
+    mock_entry = device.get_mock_entry()
+    mock_entry.add_to_hass(hass)
+
+    device.host = "192.168.1.16"
+    mock_api = device.get_mock_api()
+
+    with patch(DEVICE_FACTORY, return_value=mock_api):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=device.get_discovery_info(),
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+
+    assert mock_entry.data["host"] == device.host
+    assert mock_entry.data["mac"] == device.mac
+    assert mock_entry.data["type"] == device.devtype
+    assert mock_api.auth.call_count == 0
+
+
+async def test_flow_integration_discovery_device_not_supported(hass):
+    """Test we handle a device not supported in the integration discovery step."""
+    device = get_device("Kitchen")
+    mock_api = device.get_mock_api()
+
+    with patch(DEVICE_FACTORY, return_value=mock_api):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+            data=device.get_discovery_info(),
+        )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "not_supported"
 
 
 async def test_flow_reauth_works(hass):

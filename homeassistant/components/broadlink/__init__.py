@@ -4,6 +4,7 @@ import logging
 
 from .const import DOMAIN
 from .device import BroadlinkDevice
+from .updater import BroadlinkScout
 
 LOGGER = logging.getLogger(__name__)
 
@@ -12,13 +13,16 @@ LOGGER = logging.getLogger(__name__)
 class BroadlinkData:
     """Class for sharing data within the Broadlink integration."""
 
+    discovery: BroadlinkScout = None
     devices: dict = field(default_factory=dict)
     platforms: dict = field(default_factory=dict)
 
 
 async def async_setup(hass, config):
     """Set up the Broadlink integration."""
-    hass.data[DOMAIN] = BroadlinkData()
+    discovery = BroadlinkScout(hass)
+    hass.data[DOMAIN] = BroadlinkData(discovery)
+    await discovery.coordinator.async_refresh()
     return True
 
 

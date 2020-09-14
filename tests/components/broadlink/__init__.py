@@ -56,6 +56,16 @@ BROADLINK_DEVICES = {
         20025,
         5,
     ),
+    "Kitchen": (  # Not supported.
+        "192.168.0.64",
+        "34ea34b61d2c",
+        "LB1",
+        "Broadlink",
+        "SmartBulb",
+        0x504E,
+        57,
+        5,
+    ),
 }
 
 
@@ -85,6 +95,9 @@ class BroadlinkDevice:
         with patch(
             "homeassistant.components.broadlink.device.blk.gendevice",
             return_value=mock_api,
+        ), patch(
+            "homeassistant.components.broadlink.updater.blk.discover",
+            return_value=[],
         ):
             await hass.config_entries.async_setup(mock_entry.entry_id)
             await hass.async_block_till_done()
@@ -123,6 +136,16 @@ class BroadlinkDevice:
             "mac": self.mac,
             "type": self.devtype,
             "timeout": self.timeout,
+        }
+
+    def get_discovery_info(self):
+        """Return discovery data."""
+        return {
+            "host": self.host,
+            "mac": self.mac,
+            "type": self.devtype,
+            "name": self.name,
+            "locked": False,
         }
 
 
