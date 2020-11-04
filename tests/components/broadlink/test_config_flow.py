@@ -228,6 +228,54 @@ async def test_flow_user_os_error(hass):
     assert result["errors"] == {"base": "unknown"}
 
 
+async def test_flow_manual_works(hass):
+    """Test we allow the user to configure an unknown device."""
+    device = get_device("Attic")
+    mock_api = device.get_mock_api()
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+    assert result["errors"] == {}
+
+    with patch(DEVICE_DISCOVERY, return_value=[mock_api]) as mock_discover:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"host": device.host, "timeout": device.timeout},
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "manual"
+    assert result["errors"] == {}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_class": "RM4"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "finish"
+    assert result["errors"] == {}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": device.name},
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["title"] == device.name
+    assert result["data"] == {
+        **device.get_entry_data(),
+        "device_class": "RM4",
+    }
+
+    assert mock_discover.call_count == 1
+    assert mock_api.auth.call_count == 1
+
+
 async def test_flow_auth_authentication_error(hass):
     """Test we handle an authentication error in the auth step."""
     device = get_device("Living Room")

@@ -24,6 +24,13 @@
                 },
                 "title": "Choose a name for the device"
             },
+            "manual": {
+                "title": "Manual configuration",
+                "description": "Sorry, we don't know what device this is: {name} ({type} at {host}). You can try to configure it manually by selecting an appropriate device class.\n\nIf you manage to make it work, please consider opening an issue or creating a pull request in the [python-broadlink]({url}) library.",
+                "data": {
+                    "device_class": "Device class"
+                }
+            },
             "reset": {
                 "description": "Your device is locked for authentication. Follow the instructions to unlock it:\n1. Factory reset the device.\n2. Use the official app to add the device to your local network.\n3. Stop. Do not finish the setup. Close the app.\n4. Click Submit.",
                 "title": "Unlock the device"

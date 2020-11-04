@@ -12,11 +12,18 @@ from broadlink.exceptions import (
     NetworkTimeoutError,
 )
 
-from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_TIMEOUT, CONF_TYPE
+from homeassistant.const import (
+    CONF_DEVICE_CLASS,
+    CONF_HOST,
+    CONF_MAC,
+    CONF_NAME,
+    CONF_TIMEOUT,
+    CONF_TYPE,
+)
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 
-from .const import DEFAULT_PORT, DOMAIN, DOMAINS_AND_TYPES
+from .const import DEFAULT_PORT, DOMAIN, DOMAINS_AND_TYPES, LIBRARY_URL, SUPPORTED_TYPES
 from .updater import get_update_manager
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,14 +73,41 @@ class BroadlinkDevice:
     async def async_setup(self):
         """Set up the device and related entities."""
         config = self.config
+        name = config.title
+        host = (config.data[CONF_HOST], DEFAULT_PORT)
+        mac_addr = config.data[CONF_MAC]
+        dev_type = config.data[CONF_TYPE]
+        timeout = config.data[CONF_TIMEOUT]
+        cls_name = config.data.get(CONF_DEVICE_CLASS)
 
-        api = blk.gendevice(
-            config.data[CONF_TYPE],
-            (config.data[CONF_HOST], DEFAULT_PORT),
-            bytes.fromhex(config.data[CONF_MAC]),
-            name=config.title,
-        )
-        api.timeout = config.data[CONF_TIMEOUT]
+        if cls_name:
+            _LOGGER.warning(
+                "You have configured an unknown device: %s (%s at %s). "
+                "If you manage to make it work, please consider opening "
+                "an issue or creating a pull request at %s",
+                name,
+                hex(dev_type),
+                host[0],
+                LIBRARY_URL,
+            )
+            device_class = SUPPORTED_TYPES[cls_name]
+            api = device_class(
+                host,
+                mac_addr,
+                dev_type,
+                timeout=timeout,
+                name=name,
+                model=cls_name,
+                manufacturer="Unknown",
+            )
+        else:
+            api = blk.gendevice(
+                dev_type,
+                host,
+                mac_addr,
+                name=name,
+            )
+            api.timeout = timeout
 
         try:
             await self.hass.async_add_executor_job(api.auth)

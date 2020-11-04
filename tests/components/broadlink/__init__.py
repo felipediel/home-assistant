@@ -66,6 +66,16 @@ BROADLINK_DEVICES = {
         57,
         5,
     ),
+    "Attic": (  # Unknown device type.
+        "109.97.99.104",
+        "696e65667265",
+        None,
+        None,
+        "Unknown",
+        0x6E63,
+        107,
+        5,
+    ),
 }
 
 
@@ -93,7 +103,7 @@ class BroadlinkDevice:
         mock_entry.add_to_hass(hass)
 
         with patch(
-            "homeassistant.components.broadlink.device.blk.gendevice",
+            "homeassistant.components.broadlink.device.blk.device.__new__",
             return_value=mock_api,
         ), patch(
             "homeassistant.components.broadlink.updater.blk.discover",
@@ -120,13 +130,17 @@ class BroadlinkDevice:
         mock_api.get_fwversion.return_value = self.fwversion
         return mock_api
 
-    def get_mock_entry(self):
+    def get_mock_entry(self, extra_config=None):
         """Return a mock config entry."""
+        data = self.get_entry_data()
+        if extra_config is not None:
+            data.update(extra_config)
+
         return MockConfigEntry(
             domain=DOMAIN,
             unique_id=self.mac,
             title=self.name,
-            data=self.get_entry_data(),
+            data=data,
         )
 
     def get_entry_data(self):
