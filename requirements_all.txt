@@ -1173,6 +1173,7 @@ prometheus_client==0.7.1
 # homeassistant.components.proxmoxve
 proxmoxer==1.1.1
 
+# homeassistant.components.broadlink
 # homeassistant.components.systemmonitor
 psutil==5.7.2
 
