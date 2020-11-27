@@ -7,6 +7,7 @@ from .const import DOMAIN
 from .device import BroadlinkDevice
 from .discovery import BroadlinkDiscovery
 from .helpers import get_broadcast_addrs
+from .watchdog import BroadlinkWatchdog
 
 
 @dataclass
@@ -14,6 +15,7 @@ class BroadlinkData:
     """Class for sharing data in the Broadlink integration."""
 
     discovery: BroadlinkDiscovery = None
+    watchdog: BroadlinkWatchdog = None
     config: dict = field(default_factory=dict)
     devices: dict = field(default_factory=dict)
     platforms: dict = field(default_factory=dict)
@@ -35,6 +37,10 @@ async def async_setup_entry(hass, entry):
         data.discovery = BroadlinkDiscovery(hass)
         hass.async_create_task(data.discovery.async_setup())
 
+    if data.watchdog is None:
+        data.watchdog = BroadlinkWatchdog(hass)
+        hass.async_create_task(data.watchdog.async_setup())
+
     device = BroadlinkDevice(hass, entry)
     return await device.async_setup()
 
@@ -49,5 +55,8 @@ async def async_unload_entry(hass, entry):
     if not data.devices:
         await data.discovery.async_unload()
         data.discovery = None
+
+        await data.watchdog.async_unload()
+        data.watchdog = None
 
     return result
