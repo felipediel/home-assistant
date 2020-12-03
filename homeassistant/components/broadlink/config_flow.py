@@ -10,6 +10,7 @@ from broadlink.exceptions import (
     BroadlinkException,
     NetworkTimeoutError,
 )
+import psutil
 import voluptuous as vol
 
 from homeassistant import config_entries, data_entry_flow
@@ -17,12 +18,13 @@ from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_TIMEOUT, CO
 from homeassistant.helpers import config_validation as cv
 
 from .const import (  # pylint: disable=unused-import
+    CONF_LOCK,
     DEFAULT_PORT,
     DEFAULT_TIMEOUT,
     DOMAIN,
     DOMAINS_AND_TYPES,
 )
-from .helpers import format_mac
+from .helpers import format_mac, get_broadcast_addrs, is_broadcast_addr
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initialize the Broadlink flow."""
+        self.data = {}
         self.device = None
 
     async def async_set_device(self, device, raise_on_progress=True):
@@ -69,14 +72,19 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            host = user_input[CONF_HOST]
+            host = user_input.get(CONF_HOST)
             timeout = user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-            try:
-                hello = partial(blk.discover, discover_ip_address=host, timeout=timeout)
-                device = (await self.hass.async_add_executor_job(hello))[0]
+            if not host or is_broadcast_addr(host):
+                return await self.async_step_discover(
+                    {CONF_HOST: host, CONF_TIMEOUT: timeout}
+                )
 
-            except IndexError:
+            try:
+                hello = partial(blk.hello, host, DEFAULT_PORT, timeout)
+                device = await self.hass.async_add_executor_job(hello)
+
+            except NetworkTimeoutError:
                 errors["base"] = "cannot_connect"
                 err_msg = "Device not found"
 
@@ -113,17 +121,103 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             _LOGGER.error("Failed to connect to the device at %s: %s", host, err_msg)
 
-            if self.source == config_entries.SOURCE_IMPORT:
+            if self.source in {
+                config_entries.SOURCE_IMPORT,
+                config_entries.SOURCE_INTEGRATION_DISCOVERY,
+            }:
                 return self.async_abort(reason=errors["base"])
 
         data_schema = {
-            vol.Required(CONF_HOST): str,
+            vol.Optional(CONF_HOST): str,
             vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
         }
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(data_schema),
             errors=errors,
+        )
+
+    async def async_step_discover(self, user_input=None):
+        """Discover devices on the given networks.
+
+        If the host is empty or 255.255.255.255, discover devices on all
+        available networks.
+        """
+        host = user_input.get(CONF_HOST)
+        timeout = user_input.get(CONF_TIMEOUT)
+        errors = {}
+
+        if not host or host == "255.255.255.255":
+            nics = await self.hass.async_add_executor_job(psutil.net_if_addrs)
+            broadcast_addrs = get_broadcast_addrs(nics)
+
+        elif is_broadcast_addr(host):
+            broadcast_addrs = [host]
+
+        else:
+            user_input[CONF_TIMEOUT] = self.data.pop(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+            return await self.async_step_user(user_input=user_input)
+
+        devices = []
+        already_configured = self._async_current_ids(False)
+        in_progress = [
+            progress["context"].get("unique_id")
+            for progress in self._async_in_progress()
+        ]
+
+        for addr in broadcast_addrs:
+            discover = partial(blk.discover, discover_ip_address=addr, timeout=timeout)
+            try:
+                new_devices = await self.hass.async_add_executor_job(discover)
+
+            except OSError as err:
+                if err.errno == errno.ENETUNREACH:
+                    errors["base"] = "cannot_connect"
+                    err_msg = str(err)
+                else:
+                    errors["base"] = "unknown"
+                    err_msg = str(err)
+
+            else:
+                new_devices = [
+                    device
+                    for device in new_devices
+                    if device.mac.hex() not in already_configured
+                    and device.mac.hex() not in in_progress
+                ]
+                devices.extend(new_devices)
+
+        if not devices:
+            if not errors:
+                errors["base"] = "no_devices_found"
+                err_msg = "No devices found"
+
+            _LOGGER.error("Failed to discover devices: %s", err_msg)
+            return self.async_abort(reason=errors["base"])
+
+        if errors:
+            _LOGGER.debug("Error during device discovery: %s", err_msg)
+
+        if len(devices) == 1:
+            device = devices[0]
+            return await self.async_step_user(
+                user_input={CONF_HOST: device.host[0], CONF_TIMEOUT: timeout}
+            )
+
+        self.data[CONF_TIMEOUT] = timeout
+
+        data_schema = {
+            vol.Required(CONF_HOST): vol.In(
+                {device.host[0]: str(device) for device in devices}
+            ),
+        }
+        return self.async_show_form(
+            step_id="discover",
+            data_schema=vol.Schema(data_schema),
+            errors=errors,
+            description_placeholders={
+                "num_devices": len(devices),
+            },
         )
 
     async def async_step_auth(self):
@@ -157,7 +251,10 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         else:
             await self.async_set_unique_id(device.mac.hex())
-            if self.source == config_entries.SOURCE_IMPORT:
+            if self.source in {
+                config_entries.SOURCE_IMPORT,
+                config_entries.SOURCE_INTEGRATION_DISCOVERY,
+            }:
                 _LOGGER.warning(
                     "%s (%s at %s) is ready to be configured. Click "
                     "Configuration in the sidebar, click Integrations and "
@@ -259,10 +356,10 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         device = self.device
         errors = {}
 
-        # Abort reauthentication flow.
-        self._abort_if_unique_id_configured(
-            updates={CONF_HOST: device.host[0], CONF_TIMEOUT: device.timeout}
-        )
+        if self.source == "reauth":
+            self._abort_if_unique_id_configured(
+                updates={CONF_HOST: device.host[0], CONF_TIMEOUT: device.timeout}
+            )
 
         if user_input is not None:
             return self.async_create_entry(
@@ -288,6 +385,27 @@ class BroadlinkFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         ):
             return self.async_abort(reason="already_configured")
         return await self.async_step_user(import_info)
+
+    async def async_step_integration_discovery(self, discovery_info):
+        """Handle a flow initiated by integration discovery."""
+        if any(
+            discovery_info[CONF_HOST] == entry.data[CONF_HOST]
+            for entry in self._async_current_entries()
+        ):
+            return self.async_abort(reason="already_configured")
+
+        device = blk.gendevice(
+            discovery_info[CONF_TYPE],
+            (discovery_info[CONF_HOST], DEFAULT_PORT),
+            bytes.fromhex(discovery_info[CONF_MAC]),
+            name=discovery_info[CONF_NAME],
+            is_locked=discovery_info[CONF_LOCK],
+        )
+        await self.async_set_device(device)
+        self._abort_if_unique_id_configured(
+            updates={CONF_HOST: device.host[0], CONF_TIMEOUT: device.timeout}
+        )
+        return await self.async_step_auth()
 
     async def async_step_reauth(self, data):
         """Reauthenticate to the device."""

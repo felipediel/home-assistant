@@ -1,20 +1,19 @@
 """Support for fetching data from Broadlink devices."""
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from functools import partial
 import logging
 
-import broadlink as blk
 from broadlink.exceptions import (
     AuthorizationError,
     BroadlinkException,
     CommandNotSupportedError,
-    NetworkTimeoutError,
     StorageError,
 )
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +76,8 @@ class BroadlinkUpdateManager(ABC):
                     self.device.api.model,
                     self.device.api.host[0],
                 )
+                discovery = self.device.hass.data[DOMAIN].discovery
+                await discovery.coordinator.async_request_refresh()
             raise UpdateFailed(err) from err
 
         else:
@@ -119,14 +120,7 @@ class BroadlinkRMMini3UpdateManager(BroadlinkUpdateManager):
 
     async def async_fetch_data(self):
         """Fetch data from the device."""
-        hello = partial(
-            blk.discover,
-            discover_ip_address=self.device.api.host[0],
-            timeout=self.device.api.timeout,
-        )
-        devices = await self.device.hass.async_add_executor_job(hello)
-        if not devices:
-            raise NetworkTimeoutError("The device is offline")
+        await self.device.async_request(self.device.api.hello)
         return {}
 
 

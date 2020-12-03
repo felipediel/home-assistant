@@ -1,5 +1,7 @@
 """Helper functions for the Broadlink integration."""
 from base64 import b64decode
+from ipaddress import IPv4Address
+import socket
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
@@ -47,3 +49,37 @@ def import_device(hass, host):
             data={CONF_HOST: host},
         )
         hass.async_create_task(task)
+
+
+def get_ip_or_none(host):
+    """Return an IP address or None if socket.EAI_NONAME."""
+    try:
+        return socket.gethostbyname(host)
+    except OSError:
+        return None
+
+
+def get_broadcast_addrs(nics):
+    """Return all available IPv4/L3 broadcast addresses."""
+    return [
+        addr.broadcast
+        for addrs in nics.values()
+        for addr in addrs
+        if (
+            addr.broadcast is not None
+            and addr.family == socket.AF_INET
+            and addr.netmask == "255.255.255.0"
+        )
+    ]
+
+
+def is_broadcast_addr(address):
+    """Return True if the address is a valid IPv4 broadcast address."""
+    try:
+        ip_addr = IPv4Address(address)
+    except ValueError:
+        return False
+
+    if ip_addr.packed[3] == 255:
+        return True
+    return False
