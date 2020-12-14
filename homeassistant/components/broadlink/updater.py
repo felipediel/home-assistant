@@ -32,8 +32,10 @@ def get_update_manager(device):
         "RM4": BroadlinkRMUpdateManager,
         "SP1": BroadlinkSP1UpdateManager,
         "SP2": BroadlinkSP2UpdateManager,
+        "SP2S": BroadlinkSP2SUpdateManager,
+        "SP3S": BroadlinkSP3SUpdateManager,
         "SP4": BroadlinkSP4UpdateManager,
-        "SP4B": BroadlinkSP4UpdateManager,
+        "SP4S": BroadlinkSP4SUpdateManager,
     }
     return update_managers[device.api.type](device)
 
@@ -143,7 +145,7 @@ class BroadlinkSP1UpdateManager(BroadlinkUpdateManager):
 
     async def async_fetch_data(self):
         """Fetch data from the device."""
-        return None
+        return {}
 
 
 class BroadlinkSP2UpdateManager(BroadlinkUpdateManager):
@@ -151,15 +153,30 @@ class BroadlinkSP2UpdateManager(BroadlinkUpdateManager):
 
     async def async_fetch_data(self):
         """Fetch data from the device."""
+        pwr = await self.device.async_request(self.device.api.check_power)
+        return {"pwr": pwr}
+
+
+class BroadlinkSP2SUpdateManager(BroadlinkUpdateManager):
+    """Manages updates for Broadlink SP2S devices."""
+
+    async def async_fetch_data(self):
+        """Fetch data from the device."""
         data = {}
-        data["state"] = await self.device.async_request(self.device.api.check_power)
+        data["pwr"] = await self.device.async_request(self.device.api.check_power)
+
         try:
-            data["load_power"] = await self.device.async_request(
-                self.device.api.get_energy
-            )
+            data["power"] = await self.device.async_request(self.device.api.get_energy)
         except (CommandNotSupportedError, StorageError):
-            data["load_power"] = None
+            _LOGGER.debug(
+                "Device type %s does not support energy monitoring",
+                hex(self.device.api.devtype),
+            )
         return data
+
+
+class BroadlinkSP3SUpdateManager(BroadlinkSP2SUpdateManager):
+    """Manages updates for Broadlink SP3S devices."""
 
 
 class BroadlinkBG1UpdateManager(BroadlinkUpdateManager):
@@ -176,3 +193,12 @@ class BroadlinkSP4UpdateManager(BroadlinkUpdateManager):
     async def async_fetch_data(self):
         """Fetch data from the device."""
         return await self.device.async_request(self.device.api.get_state)
+
+
+class BroadlinkSP4SUpdateManager(BroadlinkUpdateManager):
+    """Manages updates for Broadlink SP4 devices."""
+
+    async def async_fetch_data(self):
+        """Fetch data from the device."""
+        state = await self.device.async_request(self.device.api.get_state)
+        return {key for key, value in state.items() if value != -1}

@@ -22,11 +22,6 @@ from .updater import get_update_manager
 _LOGGER = logging.getLogger(__name__)
 
 
-def get_domains(device_type):
-    """Return the domains available for a device type."""
-    return {domain for domain, types in DOMAINS_AND_TYPES if device_type in types}
-
-
 class BroadlinkDevice:
     """Manages a Broadlink device."""
 
@@ -110,10 +105,11 @@ class BroadlinkDevice:
             pass
 
         # Forward entry setup to related domains.
-        tasks = (
+        tasks = {
             self.hass.config_entries.async_forward_entry_setup(config, domain)
-            for domain in get_domains(self.api.type)
-        )
+            for domain, types in DOMAINS_AND_TYPES.items()
+            if self.api.type in types
+        }
         for entry_setup in tasks:
             self.hass.async_create_task(entry_setup)
 
@@ -129,7 +125,8 @@ class BroadlinkDevice:
 
         tasks = (
             self.hass.config_entries.async_forward_entry_unload(self.config, domain)
-            for domain in get_domains(self.api.type)
+            for domain, types in DOMAINS_AND_TYPES.items()
+            if self.api.type in types
         )
         results = await asyncio.gather(*tasks)
         return all(results)

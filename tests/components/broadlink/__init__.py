@@ -1,5 +1,5 @@
 """Tests for the Broadlink integration."""
-from homeassistant.components.broadlink.const import DOMAIN
+from homeassistant.components.broadlink.const import DOMAIN, DOMAINS_AND_TYPES
 
 from tests.async_mock import MagicMock, patch
 from tests.common import MockConfigEntry
@@ -136,6 +136,12 @@ class BroadlinkDevice:
             "mac": self.mac,
             "type": self.devtype,
             "timeout": self.timeout,
+        }
+
+    def get_domains(self):
+        """Return the domains available for the device."""
+        return {
+            domain for domain, types in DOMAINS_AND_TYPES.items() if self.type in types
         }
 
 

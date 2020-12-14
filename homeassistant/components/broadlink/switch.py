@@ -116,14 +116,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             BroadlinkRMSwitch(device, config) for config in user_defined_switches
         ]
 
-    elif device.api.type == "SP1":
-        switches = [BroadlinkSP1Switch(device)]
-
-    elif device.api.type == "SP2":
-        switches = [BroadlinkSP2Switch(device)]
-
-    elif device.api.type in {"SP4", "SP4B"}:
-        switches = [BroadlinkSP4Switch(device)]
+    elif device.api.type in {"SP1", "SP2", "SP2S", "SP3S", "SP4", "SP4S"}:
+        switches = [BroadlinkSPSwitch(device)]
 
     elif device.api.type == "BG1":
         switches = [BroadlinkBG1Slot(device, slot) for slot in range(1, 3)]
@@ -143,7 +137,6 @@ class BroadlinkSwitch(SwitchEntity, RestoreEntity, ABC):
         self._command_on = command_on
         self._command_off = command_off
         self._coordinator = device.update_manager.coordinator
-        self._device_class = None
         self._state = None
 
     @property
@@ -174,7 +167,7 @@ class BroadlinkSwitch(SwitchEntity, RestoreEntity, ABC):
     @property
     def device_class(self):
         """Return device class."""
-        return self._device_class
+        return DEVICE_CLASS_SWITCH
 
     @property
     def device_info(self):
@@ -248,18 +241,37 @@ class BroadlinkRMSwitch(BroadlinkSwitch):
         return True
 
 
-class BroadlinkSP1Switch(BroadlinkSwitch):
-    """Representation of a Broadlink SP1 switch."""
+class BroadlinkSPSwitch(BroadlinkSwitch):
+    """Representation of a Broadlink SP switch."""
 
     def __init__(self, device):
         """Initialize the switch."""
         super().__init__(device, 1, 0)
-        self._device_class = DEVICE_CLASS_OUTLET
+        self._state = self._coordinator.data.get("pwr")
+        self._load_power = self._coordinator.data.get("power")
 
     @property
     def unique_id(self):
         """Return the unique id of the switch."""
         return self._device.unique_id
+
+    @property
+    def assumed_state(self):
+        """Return True if unable to access real state of the switch."""
+        return self._state is None
+
+    @property
+    def current_power_w(self):
+        """Return the current power usage in Watt."""
+        return self._load_power
+
+    @callback
+    def update_data(self):
+        """Update data."""
+        if self._coordinator.last_update_success:
+            self._state = self._coordinator.data.get("pwr")
+            self._load_power = self._coordinator.data.get("power")
+        self.async_write_ha_state()
 
     async def _async_send_packet(self, packet):
         """Send a packet to the device."""
@@ -271,57 +283,6 @@ class BroadlinkSP1Switch(BroadlinkSwitch):
         return True
 
 
-class BroadlinkSP2Switch(BroadlinkSP1Switch):
-    """Representation of a Broadlink SP2 switch."""
-
-    def __init__(self, device, *args, **kwargs):
-        """Initialize the switch."""
-        super().__init__(device, *args, **kwargs)
-        self._state = self._coordinator.data["state"]
-        self._load_power = self._coordinator.data["load_power"]
-        if device.api.model == "SC1":
-            self._device_class = DEVICE_CLASS_SWITCH
-
-    @property
-    def assumed_state(self):
-        """Return True if unable to access real state of the switch."""
-        return False
-
-    @property
-    def current_power_w(self):
-        """Return the current power usage in Watt."""
-        return self._load_power
-
-    @callback
-    def update_data(self):
-        """Update data."""
-        if self._coordinator.last_update_success:
-            self._state = self._coordinator.data["state"]
-            self._load_power = self._coordinator.data["load_power"]
-        self.async_write_ha_state()
-
-
-class BroadlinkSP4Switch(BroadlinkSP1Switch):
-    """Representation of a Broadlink SP4 switch."""
-
-    def __init__(self, device, *args, **kwargs):
-        """Initialize the switch."""
-        super().__init__(device, *args, **kwargs)
-        self._state = self._coordinator.data["pwr"]
-
-    @property
-    def assumed_state(self):
-        """Return True if unable to access real state of the switch."""
-        return False
-
-    @callback
-    def update_data(self):
-        """Update data."""
-        if self._coordinator.last_update_success:
-            self._state = self._coordinator.data["pwr"]
-        self.async_write_ha_state()
-
-
 class BroadlinkMP1Slot(BroadlinkSwitch):
     """Representation of a Broadlink MP1 slot."""
 
@@ -330,7 +291,6 @@ class BroadlinkMP1Slot(BroadlinkSwitch):
         super().__init__(device, 1, 0)
         self._slot = slot
         self._state = self._coordinator.data[f"s{slot}"]
-        self._device_class = DEVICE_CLASS_OUTLET
 
     @property
     def unique_id(self):
@@ -374,7 +334,6 @@ class BroadlinkBG1Slot(BroadlinkSwitch):
         super().__init__(device, 1, 0)
         self._slot = slot
         self._state = self._coordinator.data[f"pwr{slot}"]
-        self._device_class = DEVICE_CLASS_OUTLET
 
     @property
     def unique_id(self):
@@ -390,6 +349,11 @@ class BroadlinkBG1Slot(BroadlinkSwitch):
     def assumed_state(self):
         """Return True if unable to access real state of the switch."""
         return False
+
+    @property
+    def device_class(self):
+        """Return device class."""
+        return DEVICE_CLASS_OUTLET
 
     @callback
     def update_data(self):
